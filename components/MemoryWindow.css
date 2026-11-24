@@ -1,0 +1,194 @@
+/* ==========================================================================
+   MemoryWindow Styling — Single Source of Truth
+   Customize the CSS variables below to restyle every memory window at once.
+   ========================================================================== */
+
+.mw-overlay {
+  --mw-backdrop: rgba(4, 4, 14, 0.8);
+  --mw-surface: rgba(10, 10, 28, 0.9);
+  --mw-border: rgba(248, 250, 252, 0.18);
+  --mw-text: #f8fafc;
+  --mw-text-muted: rgba(248, 250, 252, 0.68);
+  --mw-accent: #a855f7;
+  --mw-radius: 24px;
+  --mw-blur: 18px;
+  --mw-shadow: 0 24px 80px rgba(0, 0, 0, 0.7),
+    0 0 42px rgba(139, 92, 246, 0.25);
+
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--mw-backdrop);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+}
+
+.mw-overlay-visible {
+  opacity: 1;
+}
+
+.mw-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(96vw, 1280px);
+  height: min(88dvh, 820px);
+  overflow: hidden;
+  border-radius: var(--mw-radius);
+  border: 1px solid var(--mw-border);
+  background: var(--mw-surface);
+  backdrop-filter: blur(var(--mw-blur));
+  -webkit-backdrop-filter: blur(var(--mw-blur));
+  box-shadow: var(--mw-shadow);
+  color: var(--mw-text);
+  transform: scale(0.96) translateY(8px);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mw-overlay-visible .mw-panel {
+  transform: scale(1) translateY(0);
+}
+
+.mw-header {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.72rem 1rem 0.68rem 1.25rem;
+  border-bottom: 1px solid var(--mw-border);
+  background: rgba(5, 5, 18, 0.94);
+  flex-shrink: 0;
+}
+
+.mw-title-group {
+  min-width: 0;
+  flex: 1;
+}
+
+.mw-subtitle {
+  margin: 0;
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mw-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-title {
+  margin: 0.12rem 0 0;
+  font-family: var(--font-serif);
+  font-size: clamp(1.25rem, 2.2vw, 1.65rem);
+  font-weight: 300;
+  line-height: 1.15;
+  letter-spacing: 0.08em;
+  color: var(--mw-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 9999px;
+  border: 1px solid var(--mw-border);
+  background: rgba(248, 250, 252, 0.06);
+  color: var(--mw-text);
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease,
+    transform 200ms ease;
+}
+
+.mw-close-button:hover {
+  background: rgba(168, 85, 247, 0.24);
+  border-color: rgba(248, 250, 252, 0.5);
+  transform: scale(1.04);
+}
+
+.mw-close-button:focus-visible {
+  outline: 2px solid var(--mw-accent);
+  outline-offset: 3px;
+}
+
+.mw-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Mobile & Landscape Phone: opaque full-screen sheet respecting safe-area insets */
+@media (max-width: 767px), (max-height: 500px) {
+  .mw-overlay {
+    padding: 0;
+    background: #050512;
+  }
+
+  .mw-panel {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    border: none;
+    background: #050512;
+  }
+
+  .mw-header {
+    padding-top: max(0.55rem, env(safe-area-inset-top));
+    padding-bottom: 0.5rem;
+    padding-left: max(0.9rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+    background: #050512;
+  }
+
+  .mw-subtitle {
+    font-size: 0.58rem;
+    letter-spacing: 0.16em;
+  }
+
+  .mw-title {
+    font-size: 1.2rem;
+  }
+}
+
+/* Extra-compact header on short landscape phones (e.g. 844x390) */
+@media (max-height: 500px) {
+  .mw-header {
+    padding-top: max(0.35rem, env(safe-area-inset-top));
+    padding-bottom: 0.35rem;
+  }
+
+  .mw-title-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+  }
+
+  .mw-title {
+    margin-top: 0;
+    font-size: 1.1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mw-overlay,
+  .mw-panel {
+    transition: none;
+    transform: none;
+  }
+}

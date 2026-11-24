@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Cosmic Color Palette */
+  --color-cosmos-navy: #05050f;
+  --color-cosmos-deep: #0a0a1f;
+  --color-nebula-purple: #8b5cf6;
+  --color-nebula-pink: #ec4899;
+  --color-nebula-blue: #38bdf8;
+  --color-nebula-teal: #2dd4bf;
+  --color-star-white: #f8fafc;
+
+  /* Typography */
+  --font-serif: var(--font-cormorant-garamond), Georgia, serif;
+  --font-sans: var(--font-montserrat), system-ui, -apple-system, sans-serif;
+
+  /* Custom Glow Box Shadows */
+  --shadow-glow: 0 0 20px rgba(139, 92, 246, 0.45),
+    0 0 40px rgba(248, 250, 252, 0.18);
+  --shadow-glow-strong: 0 0 28px rgba(139, 92, 246, 0.72),
+    0 0 56px rgba(236, 72, 153, 0.32), 0 0 18px rgba(248, 250, 252, 0.35);
+
+  /* Custom Glow Text Shadows */
+  --text-shadow-glow: 0 0 24px rgba(248, 250, 252, 0.45),
+    0 0 48px rgba(139, 92, 246, 0.45);
+  --text-shadow-glow-subtle: 0 0 14px rgba(248, 250, 252, 0.35),
+    0 0 28px rgba(139, 92, 246, 0.28);
+
+  /* Animations */
+  --animate-galaxy-spin: galaxy-spin 120s linear infinite;
+  --animate-nebula-pulse: nebula-pulse 10s ease-in-out infinite;
+  --animate-fade-in-up: fade-in-up 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes galaxy-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 
+@keyframes nebula-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+html {
+  background-color: #05050f;
+  color: #f8fafc;
+  scroll-behavior: smooth;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: radial-gradient(circle at 50% 20%, #0a0a1f 0%, #05050f 70%);
+  color: #f8fafc;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Respect user motion preferences globally */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

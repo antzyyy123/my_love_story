@@ -1,9 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Enable static HTML export into the `out/` directory
+  output: "export",
+  // Required for static export since Next.js Image Optimization needs a server
+  images: {
+    unoptimized: true,
+  },
   turbopack: {
     rules: {
       "*.css": {
