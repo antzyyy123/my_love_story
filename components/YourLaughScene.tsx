@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { BellAudioEngine } from "@/lib/bellAudioEngine";
-import { SITE_CONTENT } from "@/lib/content";
+import { SITE_CONTENT, SOUND_DEFAULT_ON } from "@/lib/content";
 import {
   createYourLaughState,
   renderYourLaughFrame,
@@ -29,7 +29,7 @@ export default function YourLaughScene({ onExit, onVisited }: YourLaughSceneProp
 
   const [titleVisible, setTitleVisible] = useState(true);
   const [hasPlayed, setHasPlayed] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(!SOUND_DEFAULT_ON);
   const [joyLitCount, setJoyLitCount] = useState(0);
   const [cardVisible, setCardVisible] = useState(false);
   const [flowerButtons, setFlowerButtons] = useState<Array<{ x: number; y: number }>>([]);
@@ -129,6 +129,7 @@ export default function YourLaughScene({ onExit, onVisited }: YourLaughSceneProp
     reducedMotionRef.current = reduced;
 
     const engine = new BellAudioEngine();
+    engine.setMuted(!SOUND_DEFAULT_ON);
     audioRef.current = engine;
 
     let rafId = 0;
@@ -321,7 +322,7 @@ export default function YourLaughScene({ onExit, onVisited }: YourLaughSceneProp
               stateRef.current.focusedFlowerIdx = null;
             }
           }}
-          aria-label={`Play musical flower ${idx + 1} of 12`}
+          aria-label={`${copy.flowerAriaPrefix} ${idx + 1} / ${flowerButtons.length}`}
           className="pointer-events-none fixed z-10 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full bg-transparent outline-none focus-visible:outline-none"
           style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
         />
@@ -389,7 +390,7 @@ export default function YourLaughScene({ onExit, onVisited }: YourLaughSceneProp
 
       {/* Subtle Joy Meter Along Top Center (12 luminous petals) */}
       <div
-        aria-label={`Garden joy: ${joyLitCount} of ${JOY_PETAL_COUNT}`}
+        aria-label={`${copy.joyMeterAriaPrefix} ${joyLitCount} / ${JOY_PETAL_COUNT}`}
         className="pointer-events-none fixed inset-x-0 top-0 z-20 flex flex-col items-center pt-[max(4.15rem,calc(env(safe-area-inset-top)+3.4rem))] sm:pt-[max(1.25rem,env(safe-area-inset-top))]"
       >
         <div className="flex items-center gap-1.5 rounded-full border border-star-white/12 bg-cosmos-navy/55 px-3 py-1.5 backdrop-blur-md">

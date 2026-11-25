@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import GlowButton from "@/components/GlowButton";
-import { CONTACT_EMAIL, SITE_CONTENT } from "@/lib/content";
+import { BRAND_NAME, CONTACT_EMAIL, SITE_CONTENT } from "@/lib/content";
 
 export default function WriteForm() {
   const copy = SITE_CONTENT.writeToMe;
@@ -17,9 +17,11 @@ export default function WriteForm() {
     if (!name.trim() || !message.trim()) return;
 
     if (hasEmail) {
-      const subject = encodeURIComponent(`A note from ${name.trim()} — Our Cosmos`);
+      const subject = encodeURIComponent(
+        `${copy.emailSubjectPrefix} ${name.trim()} — ${BRAND_NAME}`
+      );
       const body = encodeURIComponent(
-        `From: ${name.trim()}\n\n${message.trim()}`
+        `${copy.emailFromLabel} ${name.trim()}\n\n${message.trim()}`
       );
       window.location.href = `mailto:${CONTACT_EMAIL.trim()}?subject=${subject}&body=${body}`;
     }

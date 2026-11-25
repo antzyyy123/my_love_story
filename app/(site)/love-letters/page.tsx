@@ -13,7 +13,8 @@ export const metadata: Metadata = {
 };
 
 export default function LoveLettersPage() {
-  const { eyebrow, heading, intro, letters } = SITE_CONTENT.loveLetters;
+  const { eyebrow, heading, intro, canvasLabelPrefix, letters } =
+    SITE_CONTENT.loveLetters;
 
   return (
     <section className="relative flex-1 pt-36 pb-24 px-6 sm:px-10">
@@ -40,7 +41,7 @@ export default function LoveLettersPage() {
                 flowerType={letter.flowerType}
                 paletteKey={letter.paletteKey}
                 seed={letter.seed}
-                label={`Glowing flower illustration for ${letter.title}`}
+                label={`${canvasLabelPrefix} ${letter.title}`}
                 className="h-44 w-full"
               />
 

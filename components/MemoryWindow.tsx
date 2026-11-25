@@ -11,6 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { SITE_CONTENT } from "@/lib/content";
 import "./MemoryWindow.css";
 
 interface ErrorBoundaryProps {
@@ -39,10 +40,10 @@ class MemoryErrorBoundary extends Component<
       return (
         <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
           <p className="font-serif text-2xl font-light text-star-white">
-            This memory is resting for a moment.
+            {SITE_CONTENT.common.memoryWindowFallbackTitle}
           </p>
           <p className="mt-2 text-xs text-star-white/70">
-            Close this window to return to our sky, or try opening it again.
+            {SITE_CONTENT.common.memoryWindowFallbackBody}
           </p>
         </div>
       );
@@ -185,7 +186,7 @@ export default function MemoryWindow({
             ref={closeBtnRef}
             type="button"
             onClick={onClose}
-            aria-label="Close memory window"
+            aria-label={SITE_CONTENT.common.closeMemoryWindowAria}
             className="mw-close-button"
           >
             <svg

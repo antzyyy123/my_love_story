@@ -5,7 +5,7 @@ import FlowerCardCanvas from "../FlowerCardCanvas";
 import { SITE_CONTENT } from "@/lib/content";
 
 export default function PromisesGrid() {
-  const { items, buttonIdle, buttonKept, statusPrefix } =
+  const { items, buttonIdle, buttonKept, statusPrefix, canvasLabelSuffix } =
     SITE_CONTENT.myPromises;
   const [keptIds, setKeptIds] = useState<string[]>([]);
   const [announcement, setAnnouncement] = useState("");
@@ -46,7 +46,7 @@ export default function PromisesGrid() {
                 flowerType={promise.flowerType}
                 paletteKey={promise.paletteKey}
                 seed={promise.seed}
-                label={`${promise.title} — glowing floral emblem`}
+                label={`${promise.title} — ${canvasLabelSuffix}`}
                 className="h-52 w-full"
               />
 

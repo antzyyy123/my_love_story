@@ -17,6 +17,7 @@ export default function OurStoryPage() {
   const {
     eyebrow,
     heading,
+    heroFlowerAria,
     quote,
     introParagraph1,
     introParagraph2,
@@ -44,7 +45,7 @@ export default function OurStoryPage() {
             flowerType="peony"
             paletteKey="pink"
             seed={777}
-            label="Glowing rose-quartz peony bloom for our story"
+            label={heroFlowerAria}
             className="h-52 w-full"
           />
 

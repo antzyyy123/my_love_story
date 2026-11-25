@@ -101,16 +101,48 @@ export interface DayWeMetState {
   selectedNodeIdx: number | null;
 }
 
-function computeConstellationNodes(w: number, h: number, isPortrait: boolean): ConstellationNode[] {
+function computeConstellationNodes(
+  w: number,
+  h: number,
+  isPortrait: boolean,
+  count = 6
+): ConstellationNode[] {
+  const n = Math.max(2, count);
   if (isPortrait) {
     // Graceful vertical S-arc across the portrait sky (top-to-bottom, centered, leaving room for controls)
+    if (n === 6) {
+      const pts: Array<[number, number]> = [
+        [0.34, 0.22],
+        [0.62, 0.31],
+        [0.42, 0.43],
+        [0.66, 0.54],
+        [0.38, 0.66],
+        [0.54, 0.77],
+      ];
+      return pts.map(([fx, fy], index) => ({
+        index,
+        x: w * fx,
+        y: h * fy,
+        igniteSec: index * 1.2,
+      }));
+    }
+    return Array.from({ length: n }, (_, index) => {
+      const t = index / (n - 1);
+      const fx = 0.5 + (index % 2 === 0 ? -0.14 : 0.14) * (1 - Math.abs(t - 0.5) * 0.4);
+      const fy = lerp(0.22, 0.77, t);
+      return { index, x: w * fx, y: h * fy, igniteSec: index * 1.2 };
+    });
+  }
+
+  // Graceful rising arc across the landscape sky (shifted slightly left so desktop right panel never covers it)
+  if (n === 6) {
     const pts: Array<[number, number]> = [
-      [0.34, 0.22],
-      [0.62, 0.31],
-      [0.42, 0.43],
-      [0.66, 0.54],
-      [0.38, 0.66],
-      [0.54, 0.77],
+      [0.14, 0.64],
+      [0.26, 0.52],
+      [0.38, 0.58],
+      [0.50, 0.42],
+      [0.62, 0.47],
+      [0.74, 0.31],
     ];
     return pts.map(([fx, fy], index) => ({
       index,
@@ -119,22 +151,13 @@ function computeConstellationNodes(w: number, h: number, isPortrait: boolean): C
       igniteSec: index * 1.2,
     }));
   }
-
-  // Graceful rising arc across the landscape sky (shifted slightly left so desktop right panel never covers it)
-  const pts: Array<[number, number]> = [
-    [0.14, 0.64],
-    [0.26, 0.52],
-    [0.38, 0.58],
-    [0.50, 0.42],
-    [0.62, 0.47],
-    [0.74, 0.31],
-  ];
-  return pts.map(([fx, fy], index) => ({
-    index,
-    x: w * fx,
-    y: h * fy,
-    igniteSec: index * 1.2,
-  }));
+  return Array.from({ length: n }, (_, index) => {
+    const t = index / (n - 1);
+    const fx = lerp(0.14, 0.74, t);
+    const wave = (index % 2 === 0 ? 0.045 : -0.045);
+    const fy = lerp(0.62, 0.32, t) + wave;
+    return { index, x: w * fx, y: h * fy, igniteSec: index * 1.2 };
+  });
 }
 
 function buildStaticLayer(state: DayWeMetState) {
@@ -190,6 +213,7 @@ export function createDayWeMetState(
   cssH: number,
   dpr: number,
   reducedMotion = false,
+  starCount = 6,
   seed = 20261124
 ): DayWeMetState {
   const rng = createSeededRandom(seed + 909);
@@ -271,7 +295,7 @@ export function createDayWeMetState(
     mergeOriginY: h * 0.5,
     splitting: false,
     splitElapsed: 0,
-    nodes: computeConstellationNodes(w, h, isPortrait),
+    nodes: computeConstellationNodes(w, h, isPortrait, starCount),
     selectedNodeIdx: null,
   };
 

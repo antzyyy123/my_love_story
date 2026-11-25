@@ -52,7 +52,7 @@ export default function Header() {
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
-            aria-label="Open navigation menu"
+            aria-label={SITE_CONTENT.common.openNavAria}
             aria-expanded={mobileMenuOpen}
             aria-controls="mobile-navigation"
             className="lg:hidden inline-flex items-center justify-center p-2 text-star-white/90 hover:text-star-white hover:drop-shadow-[0_0_10px_rgba(139,92,246,0.75)] transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nebula-purple rounded-md"
@@ -75,7 +75,7 @@ export default function Header() {
 
         {/* Desktop Centered Navigation */}
         <nav
-          aria-label="Primary navigation"
+          aria-label={SITE_CONTENT.common.primaryNavAria}
           className="hidden lg:flex items-center justify-center pt-3.5"
         >
           <ul className="flex items-center justify-center gap-x-3.5 text-[11px] font-sans uppercase tracking-[0.18em]">
@@ -117,7 +117,7 @@ export default function Header() {
           id="mobile-navigation"
           role="dialog"
           aria-modal="true"
-          aria-label="Mobile navigation"
+          aria-label={SITE_CONTENT.common.mobileNavAria}
           className="fixed inset-0 z-50 flex flex-col bg-cosmos-navy/95 backdrop-blur-xl lg:hidden"
         >
           {/* Ambient nebula glow inside mobile overlay */}
@@ -138,7 +138,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(false)}
-              aria-label="Close navigation menu"
+              aria-label={SITE_CONTENT.common.closeNavAria}
               className="inline-flex items-center justify-center p-2 text-star-white/90 hover:text-star-white hover:drop-shadow-[0_0_10px_rgba(139,92,246,0.75)] transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nebula-purple rounded-md"
             >
               <svg
@@ -157,7 +157,7 @@ export default function Header() {
           </div>
 
           <nav
-            aria-label="Mobile primary navigation"
+            aria-label={SITE_CONTENT.common.mobilePrimaryNavAria}
             className="relative flex flex-1 flex-col items-center justify-center px-6"
           >
             <ul className="flex flex-col items-center gap-6 text-sm font-sans uppercase tracking-[0.22em]">

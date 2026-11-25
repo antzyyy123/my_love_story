@@ -47,17 +47,19 @@ export default function DayWeMetScene({ onExit, onVisited }: DayWeMetSceneProps)
     return () => window.clearTimeout(timer);
   }, []);
 
-  // After stars merge, unlock constellation clicks & reveal finale card after all 6 stars ignite (~7.4s)
+  // After stars merge, unlock constellation clicks & reveal finale card after all stars ignite
+  const starCount = Math.max(2, copy.stars.length);
   useEffect(() => {
     if (!merged) return;
     onVisitedRef.current?.();
     const tReady = window.setTimeout(() => setConstellationReady(true), 1200);
-    const tCard = window.setTimeout(() => setFinaleCardVisible(true), 7400);
+    const finaleDelayMs = Math.max(2400, (starCount - 1) * 1200 + 1400);
+    const tCard = window.setTimeout(() => setFinaleCardVisible(true), finaleDelayMs);
     return () => {
       window.clearTimeout(tReady);
       window.clearTimeout(tCard);
     };
-  }, [merged]);
+  }, [merged, starCount]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -84,7 +86,7 @@ export default function DayWeMetScene({ onExit, onVisited }: DayWeMetSceneProps)
 
       const prevMerged = stateRef.current?.merged ?? false;
       const prevElapsed = stateRef.current?.mergeElapsed ?? 0;
-      const next = createDayWeMetState(cssW, cssH, dpr, reduced);
+      const next = createDayWeMetState(cssW, cssH, dpr, reduced, starCount);
       if (prevMerged) {
         next.merged = true;
         next.mergeElapsed = prevElapsed;
@@ -132,7 +134,7 @@ export default function DayWeMetScene({ onExit, onVisited }: DayWeMetSceneProps)
       ro.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [starCount]);
 
   const selectConstellationStar = (idx: number | null) => {
     const st = stateRef.current;
@@ -273,14 +275,14 @@ export default function DayWeMetScene({ onExit, onVisited }: DayWeMetSceneProps)
             onKeyDown={(e) => handleStarKeyNudge("gold", e)}
             onClick={handleBringTogether}
           >
-            Move gold star with arrow keys or press Enter to bring together
+            {copy.goldStarKeyLabel}
           </button>
           <button
             type="button"
             onKeyDown={(e) => handleStarKeyNudge("rose", e)}
             onClick={handleBringTogether}
           >
-            Move rose star with arrow keys or press Enter to bring together
+            {copy.roseStarKeyLabel}
           </button>
         </div>
       )}
@@ -388,7 +390,7 @@ export default function DayWeMetScene({ onExit, onVisited }: DayWeMetSceneProps)
             <button
               type="button"
               onClick={() => selectConstellationStar(null)}
-              aria-label="Close star memory"
+              aria-label={copy.closeStarCardAria}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-star-white/20 text-star-white/75 hover:border-star-white/50 hover:text-star-white"
             >
               &times;
@@ -426,7 +428,7 @@ export default function DayWeMetScene({ onExit, onVisited }: DayWeMetSceneProps)
               {copy.messageLine2}
             </p>
             <p className="mt-3 font-sans text-[10px] uppercase tracking-[0.18em] text-amber-200/75">
-              Tap any star in the constellation to read its memory
+              {copy.tapStarHint}
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-2.5">

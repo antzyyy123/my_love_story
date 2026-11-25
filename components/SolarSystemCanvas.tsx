@@ -11,7 +11,9 @@ import {
   type FlowerType,
 } from "@/lib/flowers";
 import { SITE_CONTENT } from "@/lib/content";
+import { useProgress } from "@/lib/progress";
 import { getRegisteredScene } from "@/scenes/registry";
+import FinalLetterOverlay from "./FinalLetterOverlay";
 import FocusScene from "./FocusScene";
 import {
   CAMERA_ELEVATION,
@@ -586,14 +588,31 @@ function drawSolarFlower3D(
 export default function SolarSystemCanvas() {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const {
+    visitedIds,
+    visitedCount,
+    totalMemories,
+    totalRequired,
+    finaleSeen,
+    moonFound,
+    hydrated,
+    markVisited,
+    markFinaleSeen,
+    markMoonFound,
+    markMoonVisited,
+  } = useProgress();
 
   const [hoveredPlanet, setHoveredPlanet] = useState<{
     planet: PlanetConfig;
     x: number;
     y: number;
   } | null>(null);
+  const [hoveredMoon, setHoveredMoon] = useState<{ x: number; y: number } | null>(null);
+  const [moonNote, setMoonNote] = useState<{ x: number; y: number } | null>(null);
+  const [moonAnnouncement, setMoonAnnouncement] = useState("");
   const [selectedItem, setSelectedItem] = useState<CelestialSelection | null>(null);
   const [focusPhase, setFocusPhase] = useState<"idle" | "entering" | "open" | "exiting">("idle");
+  const [finalePhase, setFinalePhase] = useState<"idle" | "sequence" | "envelope" | "letter">("idle");
   const [activeSceneTarget, setActiveSceneTarget] = useState<CelestialSelection | null>(null);
   const [sceneMounted, setSceneMounted] = useState(false);
   const [showHint, setShowHint] = useState(true);
@@ -602,8 +621,56 @@ export default function SolarSystemCanvas() {
   const isLeavingRef = useRef<boolean>(false);
   const leaveTimerRef = useRef<number>(0);
   const sunTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const envelopeBtnRef = useRef<HTMLButtonElement | null>(null);
   const goldenVeilRef = useRef<HTMLDivElement | null>(null);
+  const earthDiveRef = useRef<HTMLDivElement | null>(null);
+  const moonDiveRef = useRef<HTMLDivElement | null>(null);
   const visitedPlanetsRef = useRef<Set<string>>(new Set());
+  const moonFoundRef = useRef<boolean>(false);
+  const moonHoveredRef = useRef<boolean>(false);
+  const earthMoonRef = useRef<{ wx: number; wy: number; wz: number; x: number; y: number; r: number }>({
+    wx: 0,
+    wy: 0,
+    wz: 0,
+    x: -9999,
+    y: -9999,
+    r: 10,
+  });
+  const moonHeartsRef = useRef<Array<{ x: number; y: number; vx: number; vy: number; age: number; life: number; isHeart: boolean }>>([]);
+  const finaleFailsafeRef = useRef<number | null>(null);
+  const pendingFinaleCheckRef = useRef<boolean>(false);
+  const progressRef = useRef({ visitedCount: 0, totalRequired: 9, finaleSeen: false });
+
+  const finaleRef = useRef<{
+    phase: "idle" | "sequence" | "envelope" | "letter";
+    elapsed: number;
+    startAngles: number[];
+    burstDone: boolean;
+    rainPetals: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      rot: number;
+      spin: number;
+      size: number;
+      alpha: number;
+      color: string;
+    }>;
+  }>({
+    phase: "idle",
+    elapsed: 0,
+    startAngles: [],
+    burstDone: false,
+    rainPetals: [],
+  });
+
+  // Keep refs synced with React progress store for 60fps Canvas reads
+  useEffect(() => {
+    visitedPlanetsRef.current = new Set(visitedIds);
+    moonFoundRef.current = moonFound;
+    progressRef.current = { visitedCount, totalRequired, finaleSeen };
+  }, [visitedIds, visitedCount, totalRequired, finaleSeen, moonFound]);
 
   // Swipe-down tracking for mobile bottom sheet
   const sheetTouchStartYRef = useRef<number | null>(null);
@@ -631,9 +698,59 @@ export default function SolarSystemCanvas() {
     focusTimersRef.current = [];
   }, []);
 
-  const markPlanetVisited = useCallback((planetId: string) => {
-    visitedPlanetsRef.current.add(planetId);
+  const clearFinaleFailsafe = useCallback(() => {
+    if (finaleFailsafeRef.current !== null) {
+      window.clearTimeout(finaleFailsafeRef.current);
+      finaleFailsafeRef.current = null;
+    }
   }, []);
+
+  const enterEnvelopeState = useCallback(() => {
+    clearFinaleFailsafe();
+    finaleRef.current.phase = "envelope";
+    setFinalePhase("envelope");
+  }, [clearFinaleFailsafe]);
+
+  const startFinaleSequence = useCallback(() => {
+    clearFinaleFailsafe();
+    setSelectedItem(null);
+    setHoveredPlanet(null);
+    selectedIdRef.current = null;
+    hoveredIdRef.current = null;
+
+    const reduced =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (reduced) {
+      enterEnvelopeState();
+      return;
+    }
+
+    finaleRef.current = {
+      phase: "sequence",
+      elapsed: 0,
+      startAngles: [],
+      burstDone: false,
+      rainPetals: [],
+    };
+    setFinalePhase("sequence");
+
+    // 20-second failsafe guarantees we always reach the envelope state
+    finaleFailsafeRef.current = window.setTimeout(() => {
+      if (finaleRef.current.phase === "sequence") {
+        enterEnvelopeState();
+      }
+    }, 20000);
+  }, [clearFinaleFailsafe, enterEnvelopeState]);
+
+  const markPlanetVisited = useCallback(
+    (planetId: string) => {
+      visitedPlanetsRef.current.add(planetId);
+      markVisited(planetId);
+    },
+    [markVisited]
+  );
 
   const enterMemoryScene = useCallback(
     (target: CelestialSelection) => {
@@ -659,21 +776,29 @@ export default function SolarSystemCanvas() {
         return;
       }
 
-      // 1.6s smooth zoom INTO the selected celestial body -> warm glow swell -> crossfade
+      const isEarth = target.id === "our-first-date";
+      const isMoon = target.id === "moon";
+      const diveMs = isEarth ? 4000 : isMoon ? 3000 : 1600;
+      const mountMs = isEarth ? 2650 : isMoon ? 2000 : 1050;
+      const failsafeMs = isEarth || isMoon ? 6000 : 4000;
+
+      // Smooth zoom INTO the selected celestial body (4s Earth, 3s Moon, 1.6s others)
       focusDiveRef.current = { mode: "entering", progress: 0, targetId: target.id };
       solarPausedRef.current = false;
       setFocusPhase("entering");
 
       const tMount = window.setTimeout(() => {
         setSceneMounted(true);
-      }, 1050);
+      }, mountMs);
 
       const tDone = window.setTimeout(() => {
         focusDiveRef.current = { mode: "open", progress: 1, targetId: target.id };
         solarPausedRef.current = true;
         setFocusPhase("open");
         if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
-      }, 1600);
+        if (earthDiveRef.current) earthDiveRef.current.style.opacity = "0";
+        if (moonDiveRef.current) moonDiveRef.current.style.opacity = "0";
+      }, diveMs);
 
       const tFailsafe = window.setTimeout(() => {
         if (focusDiveRef.current.mode === "entering") {
@@ -682,13 +807,37 @@ export default function SolarSystemCanvas() {
           setSceneMounted(true);
           setFocusPhase("open");
           if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
+          if (earthDiveRef.current) earthDiveRef.current.style.opacity = "0";
+          if (moonDiveRef.current) moonDiveRef.current.style.opacity = "0";
         }
-      }, 4000);
+      }, failsafeMs);
 
       focusTimersRef.current.push(tMount, tDone, tFailsafe);
     },
     [clearFocusTimers]
   );
+
+  const enterMoonScene = useCallback(() => {
+    setMoonNote(null);
+    setHoveredMoon(null);
+    setSelectedItem(null);
+    clearFocusTimers();
+    const moonSelection: CelestialSelection = {
+      id: "moon",
+      isSun: false,
+      name: SITE_CONTENT.moon.name,
+      subtitle: SITE_CONTENT.moon.eyebrow,
+      description: SITE_CONTENT.moon.noteLine1,
+      paletteName: "",
+      cycleLabel: "",
+    };
+    // Allow direct handoff from Earth landscape or from Solar System
+    if (focusDiveRef.current.mode === "open") {
+      focusDiveRef.current = { mode: "idle", progress: 0, targetId: null };
+      setSceneMounted(false);
+    }
+    enterMemoryScene(moonSelection);
+  }, [clearFocusTimers, enterMemoryScene]);
 
   const exitMemoryScene = useCallback(() => {
     if (focusDiveRef.current.mode === "idle" || focusDiveRef.current.mode === "exiting") return;
@@ -704,12 +853,20 @@ export default function SolarSystemCanvas() {
       setSelectedItem(activeSceneTarget);
     }
 
-    if (reduced) {
+    const finalizeReturn = () => {
       focusDiveRef.current = { mode: "idle", progress: 0, targetId: null };
       solarPausedRef.current = false;
-      if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "1";
       setSceneMounted(false);
       setFocusPhase("idle");
+      if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
+      if (earthDiveRef.current) earthDiveRef.current.style.opacity = "0";
+      if (moonDiveRef.current) moonDiveRef.current.style.opacity = "0";
+      pendingFinaleCheckRef.current = true;
+    };
+
+    if (reduced) {
+      if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "1";
+      finalizeReturn();
       const t1 = window.setTimeout(() => {
         if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
       }, 240);
@@ -717,39 +874,60 @@ export default function SolarSystemCanvas() {
       return;
     }
 
-    // 1.6s smooth zoom BACK OUT -> solar system with celestial panel restored
+    const isEarth = targetId === "our-first-date";
+    const isMoon = targetId === "moon";
+    const exitMs = isEarth ? 3200 : isMoon ? 2600 : 1600;
+    const unmountMs = isEarth ? 850 : isMoon ? 680 : 420;
+    const failsafeMs = isEarth || isMoon ? 6000 : 4000;
+
+    // Smooth zoom BACK OUT -> solar system with celestial panel restored
     focusDiveRef.current = { mode: "exiting", progress: 1, targetId };
     solarPausedRef.current = false;
     setFocusPhase("exiting");
-    if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "1";
+    if (isEarth) {
+      if (earthDiveRef.current) earthDiveRef.current.style.opacity = "1";
+    } else if (isMoon) {
+      if (moonDiveRef.current) moonDiveRef.current.style.opacity = "1";
+    } else if (goldenVeilRef.current) {
+      goldenVeilRef.current.style.opacity = "1";
+    }
 
     const tUnmount = window.setTimeout(() => {
       setSceneMounted(false);
-    }, 420);
+    }, unmountMs);
 
     const tDone = window.setTimeout(() => {
-      focusDiveRef.current = { mode: "idle", progress: 0, targetId: null };
-      solarPausedRef.current = false;
-      setFocusPhase("idle");
-      if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
-    }, 1600);
+      finalizeReturn();
+    }, exitMs);
 
     const tFailsafe = window.setTimeout(() => {
       if (focusDiveRef.current.mode === "exiting") {
-        focusDiveRef.current = { mode: "idle", progress: 0, targetId: null };
-        solarPausedRef.current = false;
-        setSceneMounted(false);
-        setFocusPhase("idle");
-        if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
+        finalizeReturn();
       }
-    }, 4000);
+    }, failsafeMs);
 
     focusTimersRef.current.push(tUnmount, tDone, tFailsafe);
   }, [activeSceneTarget, clearFocusTimers]);
 
+  // Trigger the Grand Finale sequence right after zoom-out finishes when required visits are reached
   useEffect(() => {
-    return () => clearFocusTimers();
-  }, [clearFocusTimers]);
+    if (focusPhase !== "idle" || !pendingFinaleCheckRef.current) return;
+    pendingFinaleCheckRef.current = false;
+    if (visitedCount >= totalRequired && !finaleSeen) {
+      markFinaleSeen();
+      const t = window.setTimeout(() => {
+        startFinaleSequence();
+      }, 60);
+      return () => window.clearTimeout(t);
+    }
+  }, [focusPhase, visitedCount, totalRequired, finaleSeen, markFinaleSeen, startFinaleSequence]);
+
+  useEffect(() => {
+    return () => {
+      clearFocusTimers();
+      clearFinaleFailsafe();
+    };
+  }, [clearFocusTimers, clearFinaleFailsafe]);
 
   useEffect(() => {
     selectedIdRef.current = selectedItem?.id ?? null;
@@ -1183,14 +1361,72 @@ export default function SolarSystemCanvas() {
 
       drawRingHalf(false);
 
-      // Atmosphere halo
+      // Visited warm golden aura + drifting sparkles (subtle, never harsh)
+      const isVisited = visitedPlanetsRef.current.has(p.config.id);
+      const finaleWavePulse =
+        finaleRef.current.phase === "sequence" &&
+        finaleRef.current.elapsed >= 1.5 &&
+        finaleRef.current.elapsed <= 5.2
+          ? Math.max(
+              0,
+              1 -
+                Math.abs(
+                  (finaleRef.current.elapsed - 1.5) / 3.0 -
+                    (isPortraitMobile ? p.config.mobileOrbitFactor : p.config.orbitFactor)
+                ) *
+                  7.5
+            )
+          : 0;
+
+      if (isVisited || finaleWavePulse > 0.02) {
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        const pulse = 0.85 + 0.15 * Math.sin(elapsed * 1.9 + p.config.initialAngle);
+        const auraR = r * (2.2 + finaleWavePulse * 0.9);
+        const goldAura = ctx.createRadialGradient(px, py, r * 0.4, px, py, auraR);
+        const auraStrength = (isVisited ? 0.28 * pulse : 0) + finaleWavePulse * 0.42;
+        goldAura.addColorStop(0, `rgba(254, 240, 138, ${(auraStrength * 0.85).toFixed(3)})`);
+        goldAura.addColorStop(0.5, `rgba(245, 158, 11, ${(auraStrength * 0.35).toFixed(3)})`);
+        goldAura.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.globalAlpha = overallAlpha;
+        ctx.fillStyle = goldAura;
+        ctx.beginPath();
+        ctx.arc(px, py, auraR, 0, TAU);
+        ctx.fill();
+
+        if (isVisited && animate) {
+          // 3 tiny warm golden sparkles drifting softly off visited planets
+          const sparkCount = isMobileViewport ? 2 : 3;
+          for (let si = 0; si < sparkCount; si++) {
+            const sAng = elapsed * (0.55 + si * 0.22) + p.config.initialAngle + si * 2.1;
+            const sDist = r * (1.28 + 0.32 * Math.sin(elapsed * 1.3 + si * 1.7));
+            const sx = px + Math.cos(sAng) * sDist;
+            const sy = py + Math.sin(sAng) * sDist * 0.85 - ((elapsed * 4 + si * 9) % 10) * 0.4;
+            const sAlpha = (0.35 + 0.35 * Math.sin(elapsed * 2.6 + si * 2)) * overallAlpha;
+            ctx.fillStyle = `rgba(254, 240, 138, ${sAlpha.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.arc(sx, sy, isMobileViewport ? 1.15 : 1.45, 0, TAU);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+
+      // Atmosphere halo (soft sky-blue rim for Earth planet "our-first-date")
+      const isEarthPlanet = p.config.id === "our-first-date";
       ctx.save();
       ctx.globalCompositeOperation = "screen";
       const glowR = r * (isHovered || isSelected ? 2.25 : 1.65);
       const halo = ctx.createRadialGradient(px, py, r * 0.45, px, py, glowR);
-      halo.addColorStop(0, p.config.palette.glow.replace(/[\d.]+\)$/, "0.45)"));
-      halo.addColorStop(0.55, p.config.palette.glow.replace(/[\d.]+\)$/, "0.14)"));
-      halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+      if (isEarthPlanet) {
+        halo.addColorStop(0, "rgba(96, 165, 250, 0.48)");
+        halo.addColorStop(0.55, "rgba(56, 189, 248, 0.16)");
+        halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+      } else {
+        halo.addColorStop(0, p.config.palette.glow.replace(/[\d.]+\)$/, "0.45)"));
+        halo.addColorStop(0.55, p.config.palette.glow.replace(/[\d.]+\)$/, "0.14)"));
+        halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+      }
       ctx.globalAlpha = (isHovered || isSelected ? 0.95 : 0.62) * overallAlpha;
       ctx.fillStyle = halo;
       ctx.beginPath();
@@ -1212,9 +1448,16 @@ export default function SolarSystemCanvas() {
         py,
         r * 1.05
       );
-      sphereGrad.addColorStop(0, p.config.palette.secondary);
-      sphereGrad.addColorStop(0.55, p.config.palette.primary);
-      sphereGrad.addColorStop(1, "#09081a");
+      if (isEarthPlanet) {
+        sphereGrad.addColorStop(0, "#38bdf8");
+        sphereGrad.addColorStop(0.35, "#1d4ed8");
+        sphereGrad.addColorStop(0.75, "#0c2d6b");
+        sphereGrad.addColorStop(1, "#040d24");
+      } else {
+        sphereGrad.addColorStop(0, p.config.palette.secondary);
+        sphereGrad.addColorStop(0.55, p.config.palette.primary);
+        sphereGrad.addColorStop(1, "#09081a");
+      }
       ctx.globalAlpha = overallAlpha;
       ctx.fillStyle = sphereGrad;
       ctx.fill();
@@ -1224,47 +1467,154 @@ export default function SolarSystemCanvas() {
       const sinSpin = Math.sin(p.spin);
       const baseParticleSz = Math.max(3.5, r * 0.34);
 
-      for (let i = 0; i < p.spherePoints.length; i++) {
-        const sp = p.spherePoints[i];
-        const sx = sp.x * cosSpin - sp.y * sinSpin;
-        const sy = sp.x * sinSpin + sp.y * cosSpin;
-        const sz = sp.z;
+      if (isEarthPlanet) {
+        // Flowering Earth: rotating continents with limb foreshortening, blossoms, polar caps, faster clouds & night city lights
+        const landClusters = [
+          { lon: 0.3, lat: 0.28, rx: 0.34, ry: 0.22, col: "#2e8b57", bloom: "#f9a8d4" },
+          { lon: 0.72, lat: -0.18, rx: 0.26, ry: 0.24, col: "#3f9142", bloom: "#fde68a" },
+          { lon: 1.95, lat: 0.14, rx: 0.38, ry: 0.26, col: "#2f7d4d", bloom: "#ddd6fe" },
+          { lon: 2.38, lat: 0.36, rx: 0.22, ry: 0.16, col: "#a47c48", bloom: "#fbcfe8" },
+          { lon: 3.45, lat: -0.26, rx: 0.32, ry: 0.20, col: "#348a54", bloom: "#fde68a" },
+          { lon: 4.55, lat: 0.22, rx: 0.35, ry: 0.25, col: "#2b7a4b", bloom: "#f472b6" },
+          { lon: 5.25, lat: -0.12, rx: 0.24, ry: 0.18, col: "#8c6d46", bloom: "#c4b5fd" },
+        ];
 
-        const cxn = sx * cosYaw - sy * sinYaw;
-        const cyn = sx * sinYaw + sy * cosYaw;
-        const viewZ = cyn * cosElev + sz * sinElev;
+        for (let ci = 0; ci < landClusters.length; ci++) {
+          const lc = landClusters[ci];
+          const lon = lc.lon + p.spin;
+          const cosLat = Math.cos(lc.lat);
+          const sx = Math.cos(lon) * cosLat;
+          const sy = Math.sin(lon) * cosLat;
+          const sz = Math.sin(lc.lat);
 
-        if (viewZ < 0.02) continue;
+          const cxn = sx * cosYaw - sy * sinYaw;
+          const cyn = sx * sinYaw + sy * cosYaw;
+          const viewZ = cyn * cosElev + sz * sinElev;
+          if (viewZ < 0.05) continue;
 
-        const screenOffX = cxn * r;
-        const screenOffY = (cyn * sinElev - sz * cosElev) * r;
+          const lxPos = px + cxn * r;
+          const lyPos = py + (cyn * sinElev - sz * cosElev) * r;
+          const nDotL = sx * lx + sy * ly + sz * lz;
+          const lit = 0.26 + 0.74 * clamp((nDotL + 0.25) / 1.0, 0, 1);
 
-        const nDotL = sx * lx + sy * ly + sz * lz;
-        const lit = 0.28 + 0.72 * clamp((nDotL + 0.25) / 1.0, 0, 1);
+          // Continent patch with spherical limb foreshortening
+          ctx.globalAlpha = clamp(lit * viewZ * 1.15 * overallAlpha, 0.15, 0.94);
+          ctx.fillStyle = lc.col;
+          ctx.beginPath();
+          ctx.ellipse(lxPos, lyPos, r * lc.rx * (0.28 + 0.72 * viewZ), r * lc.ry, 0.25 * ci, 0, TAU);
+          ctx.fill();
 
-        const limbFactor = 0.42 + 0.58 * viewZ;
-        const drawW = baseParticleSz * sp.sizeMult * (sp.isBloom ? 1.45 : 1.0);
-        const drawH = drawW * (0.48 + 0.52 * viewZ);
+          // Tiny pink, violet & gold blossom clusters dotting the sunlit continent
+          if (nDotL > -0.08) {
+            ctx.fillStyle = lc.bloom;
+            ctx.globalAlpha = clamp(lit * viewZ * 0.9 * overallAlpha, 0.15, 0.9);
+            const bR = Math.max(1.1, r * 0.055);
+            ctx.beginPath();
+            ctx.arc(lxPos - r * 0.07 * viewZ, lyPos - r * 0.04, bR, 0, TAU);
+            ctx.arc(lxPos + r * 0.08 * viewZ, lyPos + r * 0.05, bR * 0.85, 0, TAU);
+            ctx.arc(lxPos + r * 0.02 * viewZ, lyPos - r * 0.08, bR * 0.75, 0, TAU);
+            ctx.fill();
+          }
 
-        const alpha = clamp(lit * limbFactor * overallAlpha * (isHovered || isSelected ? 1.15 : 0.95), 0.14, 0.98);
-        ctx.globalAlpha = alpha;
+          // Warm golden village & city lights glowing on the night side!
+          if (nDotL < -0.04) {
+            const nightStrength = clamp((-nDotL - 0.04) / 0.45, 0, 1);
+            ctx.fillStyle = `rgba(254, 240, 138, ${(nightStrength * 0.92 * overallAlpha).toFixed(3)})`;
+            const dotR = Math.max(0.85, r * 0.036);
+            ctx.beginPath();
+            ctx.arc(lxPos, lyPos, dotR, 0, TAU);
+            ctx.arc(lxPos + r * 0.06 * viewZ, lyPos - r * 0.03, dotR * 0.8, 0, TAU);
+            ctx.arc(lxPos - r * 0.05 * viewZ, lyPos + r * 0.04, dotR * 0.7, 0, TAU);
+            ctx.fill();
+          }
+        }
 
-        if (sp.isBloom) {
-          ctx.drawImage(
-            p.flowerSprite.canvas,
-            px + screenOffX - drawW * 0.5,
-            py + screenOffY - drawH * 0.5,
-            drawW,
-            drawH
+        // Polar ice caps (north & south)
+        ctx.globalAlpha = 0.78 * overallAlpha;
+        ctx.fillStyle = "#f1f5f9";
+        ctx.beginPath();
+        ctx.ellipse(px, py - r * 0.90, r * 0.44, r * 0.14, 0, 0, TAU);
+        ctx.ellipse(px, py + r * 0.92, r * 0.36, r * 0.11, 0, 0, TAU);
+        ctx.fill();
+
+        // Separate cloud layer rotating slightly faster than the surface (1.28x spin)
+        const cloudBands = [
+          { lon: 0.4, lat: 0.35, rx: 0.30, ry: 0.09 },
+          { lon: 1.5, lat: -0.05, rx: 0.36, ry: 0.10 },
+          { lon: 2.8, lat: 0.22, rx: 0.28, ry: 0.08 },
+          { lon: 3.9, lat: -0.32, rx: 0.34, ry: 0.09 },
+          { lon: 5.1, lat: 0.10, rx: 0.32, ry: 0.09 },
+        ];
+        const cloudSpin = p.spin * 1.28;
+        for (const cb of cloudBands) {
+          const lon = cb.lon + cloudSpin;
+          const cosLat = Math.cos(cb.lat);
+          const sx = Math.cos(lon) * cosLat;
+          const sy = Math.sin(lon) * cosLat;
+          const sz = Math.sin(cb.lat);
+          const cxn = sx * cosYaw - sy * sinYaw;
+          const cyn = sx * sinYaw + sy * cosYaw;
+          const viewZ = cyn * cosElev + sz * sinElev;
+          if (viewZ < 0.06) continue;
+          const nDotL = sx * lx + sy * ly + sz * lz;
+          const lit = 0.22 + 0.78 * clamp((nDotL + 0.2) / 1.0, 0, 1);
+          ctx.globalAlpha = clamp(lit * viewZ * 0.56 * overallAlpha, 0.08, 0.62);
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.ellipse(
+            px + cxn * r,
+            py + (cyn * sinElev - sz * cosElev) * r,
+            r * cb.rx * (0.25 + 0.75 * viewZ),
+            r * cb.ry,
+            0.12,
+            0,
+            TAU
           );
-        } else {
-          ctx.drawImage(
-            p.petalSprite,
-            px + screenOffX - drawW * 0.5,
-            py + screenOffY - drawH * 0.5,
-            drawW,
-            drawH
-          );
+          ctx.fill();
+        }
+      } else {
+        for (let i = 0; i < p.spherePoints.length; i++) {
+          const sp = p.spherePoints[i];
+          const sx = sp.x * cosSpin - sp.y * sinSpin;
+          const sy = sp.x * sinSpin + sp.y * cosSpin;
+          const sz = sp.z;
+
+          const cxn = sx * cosYaw - sy * sinYaw;
+          const cyn = sx * sinYaw + sy * cosYaw;
+          const viewZ = cyn * cosElev + sz * sinElev;
+
+          if (viewZ < 0.02) continue;
+
+          const screenOffX = cxn * r;
+          const screenOffY = (cyn * sinElev - sz * cosElev) * r;
+
+          const nDotL = sx * lx + sy * ly + sz * lz;
+          const lit = 0.28 + 0.72 * clamp((nDotL + 0.25) / 1.0, 0, 1);
+
+          const limbFactor = 0.42 + 0.58 * viewZ;
+          const drawW = baseParticleSz * sp.sizeMult * (sp.isBloom ? 1.45 : 1.0);
+          const drawH = drawW * (0.48 + 0.52 * viewZ);
+
+          const alpha = clamp(lit * limbFactor * overallAlpha * (isHovered || isSelected ? 1.15 : 0.95), 0.14, 0.98);
+          ctx.globalAlpha = alpha;
+
+          if (sp.isBloom) {
+            ctx.drawImage(
+              p.flowerSprite.canvas,
+              px + screenOffX - drawW * 0.5,
+              py + screenOffY - drawH * 0.5,
+              drawW,
+              drawH
+            );
+          } else {
+            ctx.drawImage(
+              p.petalSprite,
+              px + screenOffX - drawW * 0.5,
+              py + screenOffY - drawH * 0.5,
+              drawW,
+              drawH
+            );
+          }
         }
       }
 
@@ -1364,18 +1714,95 @@ export default function SolarSystemCanvas() {
         return { screenX, screenY, depth, pScale, depthFade };
       };
 
+      // Advance Grand Finale 14s sequence timeline if active
+      const fin = finaleRef.current;
+      let finWaveOrbit = -1;
+      let finSunBloom = 0;
+      let finLightRingR = 0;
+      let finLightRingAlpha = 0;
+      if (fin.phase === "sequence" && animate) {
+        fin.elapsed += dt;
+        const ft = fin.elapsed;
+
+        if (ft >= 1.5 && ft <= 4.7) {
+          finWaveOrbit = (ft - 1.5) / 3.0;
+        }
+        if (ft >= 4.5 && fin.startAngles.length === 0) {
+          fin.startAngles = planetRuntimes.map((pr) => pr.angle);
+        }
+        if (ft >= 6.8 && ft <= 9.6) {
+          // Sun blooms to its largest size during alignment hold (7.0-9.0s)
+          const inT = clamp((ft - 6.8) / 0.7, 0, 1);
+          const outT = clamp((9.6 - ft) / 0.7, 0, 1);
+          finSunBloom = easeInOutCubic(Math.min(inT, outT));
+        }
+        if (ft >= 7.0 && ft <= 9.5) {
+          const ringT = clamp((ft - 7.0) / 2.2, 0, 1);
+          finLightRingR = easeOutCubic(ringT) * maxOrbitR * 1.45;
+          finLightRingAlpha = (1 - ringT) * 0.72;
+        }
+        if (ft >= 7.1 && !fin.burstDone) {
+          fin.burstDone = true;
+          const petalCount = isMobileViewport ? 34 : 72;
+          const colors = ["#fef08a", "#fde047", "#fbcfe8", "#e9d5ff", "#ffffff"];
+          for (let i = 0; i < petalCount; i++) {
+            const ang = (i / petalCount) * TAU + (Math.random() - 0.5) * 0.2;
+            const spd = 45 + Math.random() * 145;
+            fin.rainPetals.push({
+              x: width * 0.5 + (Math.random() - 0.5) * 30,
+              y: height * 0.5 + (Math.random() - 0.5) * 30,
+              vx: Math.cos(ang) * spd,
+              vy: Math.sin(ang) * spd - 25,
+              rot: Math.random() * TAU,
+              spin: (Math.random() - 0.5) * 3.2,
+              size: (isMobileViewport ? 3.5 : 5) + Math.random() * 4.5,
+              alpha: 0.75 + Math.random() * 0.25,
+              color: colors[i % colors.length],
+            });
+          }
+        }
+        if (ft >= 12.2) {
+          enterEnvelopeState();
+        }
+      }
+
       for (let idx = 0; idx < planetRuntimes.length; idx++) {
         const p = planetRuntimes[idx];
-        const isHovered = hoveredIdRef.current === p.config.id;
-        const isSelected = selectedIdRef.current === p.config.id;
+        const isHovered = hoveredIdRef.current === p.config.id && fin.phase === "idle";
+        const isSelected = selectedIdRef.current === p.config.id && fin.phase === "idle";
 
-        if (animate && !isHovered && !isSelected) {
+        if (fin.phase === "sequence" && animate) {
+          const ft = fin.elapsed;
+          if (ft < 4.5) {
+            p.angle = (p.angle + p.config.orbitSpeed * dt) % TAU;
+          } else if (ft < 7.0) {
+            // Smoothly glide into a straight-line alignment through the Sun (alternating 0 and PI)
+            const alignT = easeInOutCubic(clamp((ft - 4.5) / 2.5, 0, 1));
+            const targetAngle = idx % 2 === 0 ? 0 : Math.PI;
+            const startAng = fin.startAngles[idx] ?? p.angle;
+            // Shortest angular delta
+            let delta = ((targetAngle - startAng + Math.PI * 3) % TAU) - Math.PI;
+            if (Math.abs(delta) < 0.001) delta = 0;
+            p.angle = (startAng + delta * alignT + TAU) % TAU;
+          } else if (ft < 9.0) {
+            // Hold alignment for 2 seconds
+            p.angle = idx % 2 === 0 ? 0 : Math.PI;
+          } else {
+            // Ease smoothly back into natural orbital speeds
+            const resumeT = easeInOutCubic(clamp((ft - 9.0) / 2.6, 0, 1));
+            p.angle = (p.angle + p.config.orbitSpeed * resumeT * dt) % TAU;
+          }
+        } else if (animate && !isHovered && !isSelected) {
           p.angle = (p.angle + p.config.orbitSpeed * dt) % TAU;
         }
         if (animate) {
           p.spin = (p.spin + p.config.spinSpeed * dt) % TAU;
           if (p.config.moon) {
-            p.moonAngle = (p.moonAngle + p.config.moon.speed * dt) % TAU;
+            const slowEarthMoon =
+              p.config.id === "our-first-date" && moonHoveredRef.current && !reducedMotionQuery.matches
+                ? 0.16
+                : 1;
+            p.moonAngle = (p.moonAngle + p.config.moon.speed * slowEarthMoon * dt) % TAU;
           }
         }
 
@@ -1407,7 +1834,12 @@ export default function SolarSystemCanvas() {
       let targetOffY = 0;
       const selectedRuntime = planetRuntimes.find((p) => p.config.id === selectedIdRef.current);
 
-      if (selectedRuntime) {
+      if (fin.phase === "sequence" || fin.phase === "envelope") {
+        // Ease camera back slightly during the Grand Finale so all orbits shine in full view
+        targetZoom = isPortraitMobile ? 0.88 : 0.86;
+        targetOffX = 0;
+        targetOffY = 0;
+      } else if (selectedRuntime) {
         targetZoom = isPortraitMobile ? 1.75 : isMobileViewport ? 1.8 : 2.15;
         const proj = project3D(selectedRuntime.wx, selectedRuntime.wy, selectedRuntime.wz, 0, 0, targetZoom);
         const panelShiftX = width >= 1024 ? -width * 0.12 : 0;
@@ -1422,22 +1854,34 @@ export default function SolarSystemCanvas() {
       }
 
       const dive = focusDiveRef.current;
+      const isEarthDive = dive.targetId === "our-first-date";
+      const isMoonDive = dive.targetId === "moon";
       if (animate) {
+        const enterDur = isEarthDive ? 4.0 : isMoonDive ? 3.0 : 1.6;
+        const exitDur = isEarthDive ? 3.2 : isMoonDive ? 2.6 : 1.6;
         if (dive.mode === "entering") {
-          dive.progress = Math.min(1, dive.progress + dt / 1.6);
+          dive.progress = Math.min(1, dive.progress + dt / enterDur);
         } else if (dive.mode === "exiting") {
-          dive.progress = Math.max(0, dive.progress - dt / 1.6);
+          dive.progress = Math.max(0, dive.progress - dt / exitDur);
         }
       }
 
       if (dive.mode === "entering" || dive.mode === "exiting") {
-        // Drive the solar system camera smoothly INTO or OUT OF the selected Sun or Planet
+        // Drive the solar system camera smoothly INTO or OUT OF the selected Sun, Planet, or Moon
         const divePlanet = planetRuntimes.find((p) => p.config.id === dive.targetId);
         const eased = easeInOutCubic(dive.progress);
 
-        if (divePlanet) {
+        if (isMoonDive) {
+          const em = earthMoonRef.current;
+          const zoomNow = lerp(1.5, 24.0, eased * eased);
+          const projNow = project3D(em.wx, em.wy, em.wz, 0, 0, zoomNow);
+          camZoom = zoomNow;
+          camOffsetX = -projNow.screenX;
+          camOffsetY = -projNow.screenY;
+        } else if (divePlanet) {
           const baseZoom = isPortraitMobile ? 1.75 : isMobileViewport ? 1.8 : 2.15;
-          const zoomNow = lerp(baseZoom, 13.5, eased * eased);
+          const maxZoom = isEarthDive ? 22.0 : 13.5;
+          const zoomNow = lerp(baseZoom, maxZoom, eased * eased);
           const projNow = project3D(divePlanet.wx, divePlanet.wy, divePlanet.wz, 0, 0, zoomNow);
           const panelShiftX = width >= 1024 ? -width * 0.12 : 0;
           const sheetShiftY = isPortraitMobile ? -height * 0.1 : 0;
@@ -1453,8 +1897,35 @@ export default function SolarSystemCanvas() {
           camOffsetY = lerp(baseSunOffY, 0, eased);
         }
 
-        // Warm golden swell peaks around dive.progress ~ 0.65..0.82 then crossfades cleanly
-        if (goldenVeilRef.current) {
+        if (isEarthDive && earthDiveRef.current) {
+          // Soft blue atmospheric entry + streaming clouds parting past camera
+          const cloudGlow =
+            dive.mode === "entering"
+              ? dive.progress < 0.70
+                ? clamp((dive.progress - 0.34) / 0.36, 0, 1)
+                : clamp(1 - (dive.progress - 0.70) / 0.30, 0, 1)
+              : dive.progress > 0.68
+                ? 1
+                : clamp((dive.progress - 0.22) / 0.46, 0, 1);
+          const cloudScale = 0.85 + eased * 1.45;
+          earthDiveRef.current.style.opacity = cloudGlow.toFixed(3);
+          earthDiveRef.current.style.transform = `scale(${cloudScale.toFixed(3)})`;
+          if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
+        } else if (isMoonDive && moonDiveRef.current) {
+          // Silver-blue cratered lunar surface swell on 3s Moon landing
+          const mGlow =
+            dive.mode === "entering"
+              ? dive.progress < 0.68
+                ? clamp((dive.progress - 0.34) / 0.34, 0, 1)
+                : clamp(1 - (dive.progress - 0.68) / 0.32, 0, 1)
+              : dive.progress > 0.68
+                ? 1
+                : clamp((dive.progress - 0.22) / 0.46, 0, 1);
+          moonDiveRef.current.style.opacity = mGlow.toFixed(3);
+          moonDiveRef.current.style.transform = `scale(${(0.9 + eased * 0.9).toFixed(3)})`;
+          if (goldenVeilRef.current) goldenVeilRef.current.style.opacity = "0";
+        } else if (goldenVeilRef.current) {
+          // Warm golden swell peaks around dive.progress ~ 0.65..0.82 then crossfades cleanly
           let glow = 0;
           if (dive.mode === "entering") {
             glow =
@@ -1644,15 +2115,32 @@ export default function SolarSystemCanvas() {
           const sinN = Math.sin(p.config.nodeAngle);
 
           const isHighlighted =
-            hoveredIdRef.current === p.config.id ||
-            selectedIdRef.current === p.config.id;
+            fin.phase === "idle" &&
+            (hoveredIdRef.current === p.config.id ||
+              selectedIdRef.current === p.config.id);
+          const isVisitedOrbit = visitedPlanetsRef.current.has(p.config.id);
+          const waveHit =
+            finWaveOrbit >= 0
+              ? Math.max(0, 1 - Math.abs(finWaveOrbit - orbitFrac) * 8.5)
+              : 0;
 
-          ctx.strokeStyle = isHighlighted
-            ? p.config.palette.highlight
-            : frontArc
+          if (waveHit > 0.05) {
+            ctx.strokeStyle = `rgba(254, 240, 138, ${(0.28 + waveHit * 0.62).toFixed(3)})`;
+            ctx.lineWidth = frontArc ? 1.5 + waveHit * 2.0 : 0.9 + waveHit * 1.1;
+          } else if (isHighlighted) {
+            ctx.strokeStyle = p.config.palette.highlight;
+            ctx.lineWidth = frontArc ? 1.8 : 1.0;
+          } else if (isVisitedOrbit) {
+            ctx.strokeStyle = frontArc
+              ? "rgba(253, 224, 71, 0.34)"
+              : "rgba(253, 224, 71, 0.13)";
+            ctx.lineWidth = frontArc ? 1.35 : 0.78;
+          } else {
+            ctx.strokeStyle = frontArc
               ? "rgba(248, 250, 252, 0.24)"
               : "rgba(248, 250, 252, 0.08)";
-          ctx.lineWidth = isHighlighted ? (frontArc ? 1.8 : 1.0) : frontArc ? 1.25 : 0.7;
+            ctx.lineWidth = frontArc ? 1.25 : 0.7;
+          }
 
           const maxSeg = Math.floor(segments * orbitDrawT);
           let drawing = false;
@@ -1703,14 +2191,56 @@ export default function SolarSystemCanvas() {
       drawables.push({
         depth: 0,
         draw: () => {
+          const sunVisited = visitedPlanetsRef.current.has(SUN_INFO.id);
+          const effectiveSunR = sunScreenRadius * (1 + finSunBloom * 0.42);
+
+          // Slightly larger soft golden corona once Sun is visited (or during finale bloom)
+          if (sunVisited || finSunBloom > 0.02) {
+            ctx.save();
+            ctx.globalCompositeOperation = "screen";
+            const coronaR = effectiveSunR * (sunVisited ? 3.55 : 3.2) * (1 + finSunBloom * 0.45);
+            const coronaPulse = 0.88 + 0.12 * Math.sin(elapsed * 1.4);
+            const cGrad = ctx.createRadialGradient(
+              sysCenterX,
+              sysCenterY,
+              effectiveSunR * 0.35,
+              sysCenterX,
+              sysCenterY,
+              coronaR
+            );
+            const cAlpha = (sunVisited ? 0.22 * coronaPulse : 0) + finSunBloom * 0.44;
+            cGrad.addColorStop(0, `rgba(255, 251, 235, ${(cAlpha * 0.95).toFixed(3)})`);
+            cGrad.addColorStop(0.42, `rgba(253, 224, 71, ${(cAlpha * 0.48).toFixed(3)})`);
+            cGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+            ctx.fillStyle = cGrad;
+            ctx.beginPath();
+            ctx.arc(sysCenterX, sysCenterY, coronaR, 0, TAU);
+            ctx.fill();
+
+            // Extra rotating golden petal rays during the Grand Finale alignment bloom
+            if (finSunBloom > 0.04) {
+              ctx.translate(sysCenterX, sysCenterY);
+              ctx.rotate(elapsed * 0.35);
+              ctx.globalAlpha = finSunBloom * 0.55;
+              for (let rp = 0; rp < 16; rp++) {
+                ctx.rotate(TAU / 16);
+                ctx.fillStyle = rp % 2 === 0 ? "#fef08a" : "#fbcfe8";
+                ctx.beginPath();
+                ctx.ellipse(0, -effectiveSunR * 1.65, effectiveSunR * 0.24, effectiveSunR * 0.95, 0, 0, TAU);
+                ctx.fill();
+              }
+            }
+            ctx.restore();
+          }
+
           drawSolarFlower3D(
             ctx,
             sysCenterX,
             sysCenterY,
-            sunScreenRadius,
+            effectiveSunR,
             elapsed,
             sunBloomT,
-            sunHoverLerp,
+            Math.max(sunHoverLerp, finSunBloom),
             mouseX,
             mouseY
           );
@@ -1815,14 +2345,45 @@ export default function SolarSystemCanvas() {
           const mProj = project3D(mwx, mwy, mwz, sysCenterX, sysCenterY, camZoom);
           const moonSprite = p.moonSprite;
           const mSize = p.screenRadius * m.sizeMult * 2.6;
+          const isEarthMoon = p.config.id === "our-first-date";
+          if (isEarthMoon) {
+            earthMoonRef.current = {
+              wx: mwx,
+              wy: mwy,
+              wz: mwz,
+              x: mProj.screenX,
+              y: mProj.screenY,
+              r: Math.max(8, mSize * 0.5),
+            };
+          }
 
           drawables.push({
             depth: mProj.depth,
             draw: () => {
               ctx.save();
+              if (isEarthMoon && (moonHoveredRef.current || moonFoundRef.current)) {
+                const mgR = mSize * (moonHoveredRef.current ? 1.55 : 1.25);
+                const mg = ctx.createRadialGradient(
+                  mProj.screenX,
+                  mProj.screenY,
+                  mSize * 0.15,
+                  mProj.screenX,
+                  mProj.screenY,
+                  mgR
+                );
+                mg.addColorStop(
+                  0,
+                  moonHoveredRef.current ? "rgba(254, 240, 138, 0.78)" : "rgba(254, 240, 138, 0.46)"
+                );
+                mg.addColorStop(1, "rgba(186, 230, 253, 0)");
+                ctx.fillStyle = mg;
+                ctx.beginPath();
+                ctx.arc(mProj.screenX, mProj.screenY, mgR, 0, TAU);
+                ctx.fill();
+              }
               ctx.translate(mProj.screenX, mProj.screenY);
               ctx.rotate(p.moonAngle);
-              ctx.globalAlpha = 0.88 * mProj.depthFade;
+              ctx.globalAlpha = (isEarthMoon && moonHoveredRef.current ? 1 : 0.88) * mProj.depthFade;
               ctx.drawImage(moonSprite.canvas, -mSize / 2, -mSize / 2, mSize, mSize);
               ctx.restore();
             },
@@ -1858,21 +2419,105 @@ export default function SolarSystemCanvas() {
         ctx.restore();
       }
 
-      // Desktop-only hover hit-testing (touch uses direct tap)
-      if (pointerRef.current.active && !isMobileViewport) {
+      // Finale expanding golden light ring & raining petals
+      if (finLightRingAlpha > 0.01) {
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        ctx.strokeStyle = `rgba(254, 240, 138, ${finLightRingAlpha.toFixed(3)})`;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(sysCenterX, sysCenterY, finLightRingR, 0, TAU);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(finLightRingAlpha * 0.8).toFixed(3)})`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (fin.rainPetals.length > 0) {
+        ctx.save();
+        for (let i = fin.rainPetals.length - 1; i >= 0; i--) {
+          const rp = fin.rainPetals[i];
+          rp.x += rp.vx * dt;
+          rp.y += rp.vy * dt;
+          rp.vx *= 0.985;
+          rp.vy = Math.min(72, rp.vy + 26 * dt);
+          rp.rot += rp.spin * dt;
+          rp.alpha -= dt * 0.14;
+          if (rp.alpha <= 0.01 || rp.y > height + 24) {
+            fin.rainPetals.splice(i, 1);
+            continue;
+          }
+          ctx.save();
+          ctx.translate(rp.x, rp.y);
+          ctx.rotate(rp.rot);
+          ctx.globalAlpha = rp.alpha;
+          ctx.fillStyle = rp.color;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, rp.size, rp.size * 0.48, 0, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      }
+
+      // Tiny rising hearts & petals emitted from Earth's moon when tapped
+      if (moonHeartsRef.current.length > 0) {
+        ctx.save();
+        for (let i = moonHeartsRef.current.length - 1; i >= 0; i--) {
+          const mh = moonHeartsRef.current[i];
+          mh.age += dt;
+          if (mh.age >= mh.life) {
+            moonHeartsRef.current.splice(i, 1);
+            continue;
+          }
+          mh.x += mh.vx * dt;
+          mh.y += mh.vy * dt;
+          const a = 1 - mh.age / mh.life;
+          ctx.globalAlpha = a * 0.9;
+          ctx.fillStyle = mh.isHeart ? "#fbcfe8" : "#fde68a";
+          ctx.beginPath();
+          if (mh.isHeart) {
+            const s = 3.2;
+            ctx.moveTo(mh.x, mh.y + s);
+            ctx.bezierCurveTo(mh.x - s * 1.4, mh.y - s * 0.3, mh.x - s, mh.y - s * 1.5, mh.x, mh.y - s * 0.5);
+            ctx.bezierCurveTo(mh.x + s, mh.y - s * 1.5, mh.x + s * 1.4, mh.y - s * 0.3, mh.x, mh.y + s);
+          } else {
+            ctx.ellipse(mh.x, mh.y, 3.2, 1.6, mh.age * 2, 0, TAU);
+          }
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // Desktop-only hover hit-testing (touch uses direct tap; disabled during finale)
+      if (pointerRef.current.active && !isMobileViewport && fin.phase === "idle") {
         const mx = pointerRef.current.x;
         const my = pointerRef.current.y;
 
+        // Check Earth's hidden moon first (>= 48px hit area)
+        const em = earthMoonRef.current;
+        const hitMoon = dist(mx, my, em.x, em.y) <= Math.max(24, em.r + 12);
+        if (hitMoon !== moonHoveredRef.current) {
+          moonHoveredRef.current = hitMoon;
+          setHoveredMoon(hitMoon ? { x: em.x, y: em.y } : null);
+        } else if (hitMoon) {
+          setHoveredMoon({ x: em.x, y: em.y });
+        }
+
         const frontToBack = [...planetRuntimes].sort((a, b) => b.depth - a.depth);
         let foundPlanet: PlanetRuntime | null = null;
-        for (const p of frontToBack) {
-          if (dist(mx, my, p.screenX, p.screenY) <= Math.max(18, p.screenRadius * 1.22)) {
-            foundPlanet = p;
-            break;
+        if (!hitMoon) {
+          for (const p of frontToBack) {
+            if (dist(mx, my, p.screenX, p.screenY) <= Math.max(18, p.screenRadius * 1.22)) {
+              foundPlanet = p;
+              break;
+            }
           }
         }
 
         const sunHit =
+          !hitMoon &&
           (!foundPlanet || foundPlanet.depth < 0) &&
           dist(mx, my, sunScreenX, sunScreenY) <= sunScreenRadius * 1.25;
         if (sunHit) {
@@ -1897,7 +2542,7 @@ export default function SolarSystemCanvas() {
           }
         }
 
-        canvas.style.cursor = foundPlanet || sunHit ? "pointer" : "default";
+        canvas.style.cursor = hitMoon || foundPlanet || sunHit ? "pointer" : "default";
       }
     };
 
@@ -1953,12 +2598,38 @@ export default function SolarSystemCanvas() {
     };
 
     const handleCanvasClick = (event: MouseEvent) => {
+      if (finaleRef.current.phase !== "idle") return;
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
 
       // Dismiss hint pill on first tap/click
       setShowHint(false);
+
+      // Check Earth's hidden moon first (>= 48px hit area)
+      const em = earthMoonRef.current;
+      if (dist(x, y, em.x, em.y) <= Math.max(24, em.r + 14)) {
+        setSelectedItem(null);
+        setHoveredPlanet(null);
+        setMoonNote({ x: em.x, y: em.y });
+        markMoonFound();
+        setMoonAnnouncement(`${SITE_CONTENT.moon.noteLine1} ${SITE_CONTENT.moon.noteLine2}`);
+        if (!reducedMotionQuery.matches) {
+          for (let i = 0; i < 8; i++) {
+            moonHeartsRef.current.push({
+              x: em.x + (Math.random() - 0.5) * 14,
+              y: em.y,
+              vx: (Math.random() - 0.5) * 28,
+              vy: -(24 + Math.random() * 34),
+              age: 0,
+              life: 1.4 + Math.random() * 0.6,
+              isHeart: i % 2 === 0,
+            });
+          }
+        }
+        return;
+      }
+      setMoonNote(null);
 
       // Front-most planets win overlaps; generous touch hit area = radius + 18px (min 44px diameter)
       const frontToBack = [...planetRuntimes].sort((a, b) => b.depth - a.depth);
@@ -2041,10 +2712,12 @@ export default function SolarSystemCanvas() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       reducedMotionQuery.removeEventListener("change", startOrStatic);
     };
-  }, []);
+  }, [enterEnvelopeState, markMoonFound]);
 
   const isFocusActive = focusPhase !== "idle";
+  const isFinaleActive = finalePhase !== "idle";
   const selectedSceneEntry = getRegisteredScene(selectedItem?.id);
+  const selectedIsVisited = Boolean(selectedItem && visitedIds.has(selectedItem.id));
   const activeSceneEntry = getRegisteredScene(activeSceneTarget?.id);
   const ActiveSceneComponent = activeSceneEntry?.Scene ?? null;
 
@@ -2062,8 +2735,8 @@ export default function SolarSystemCanvas() {
         className="fixed inset-0 block h-full w-full touch-manipulation"
       />
 
-      {/* Top-Left Minimal "Back to Our Galaxy" Button (hidden during FocusScene) */}
-      {!isFocusActive && (
+      {/* Top-Left Minimal "Back to Our Galaxy" Button (hidden during FocusScene or Finale) */}
+      {!isFocusActive && !isFinaleActive && (
         <div
           className="fixed z-20"
           style={{
@@ -2079,6 +2752,29 @@ export default function SolarSystemCanvas() {
             <span aria-hidden="true">&larr;</span>
             {SITE_CONTENT.solarSystem.backButton}
           </button>
+        </div>
+      )}
+
+      {/* Top-Right Quiet Visited Counter Pill (shown after first visit) */}
+      {hydrated && visitedCount > 0 && !isFocusActive && !isFinaleActive && (
+        <div
+          className="pointer-events-none fixed z-20"
+          style={{
+            top: "max(1rem, env(safe-area-inset-top))",
+            right: "max(1rem, env(safe-area-inset-right))",
+          }}
+        >
+          <div className="inline-flex min-h-[38px] items-center gap-2 rounded-full border border-amber-200/25 bg-cosmos-navy/70 px-3.5 py-1.5 font-sans text-[10px] uppercase tracking-[0.18em] text-amber-100/90 backdrop-blur-md sm:text-[11px]">
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-1.5 rounded-full bg-amber-300 shadow-[0_0_8px_rgba(253,224,71,0.9)]"
+            />
+            <span>
+              {SITE_CONTENT.solarSystem.memoriesOpenedLabel}{" "}
+              <strong className="font-semibold text-amber-200">{visitedCount}</strong>{" "}
+              {SITE_CONTENT.solarSystem.ofWord} {totalMemories}
+            </span>
+          </div>
         </div>
       )}
 
@@ -2101,7 +2797,7 @@ export default function SolarSystemCanvas() {
 
       {/* Accessible Keyboard Navigation Overlay (Sun + 8 Planets) */}
       <nav
-        aria-label="Our sky keyboard navigation"
+        aria-label={SITE_CONTENT.solarSystem.keyboardNavAria}
         className="fixed z-20 flex flex-wrap justify-end gap-1.5 max-w-[55vw]"
         style={{
           top: "max(1rem, env(safe-area-inset-top))",
@@ -2112,7 +2808,7 @@ export default function SolarSystemCanvas() {
           ref={sunTriggerRef}
           type="button"
           onClick={() => setSelectedItem(SUN_INFO)}
-          aria-label={`Open ${SUN_INFO.name}, ${SUN_INFO.subtitle}`}
+          aria-label={`${SITE_CONTENT.solarSystem.openSunAriaPrefix} ${SUN_INFO.name}, ${SUN_INFO.subtitle}`}
           aria-pressed={selectedItem?.id === SUN_INFO.id || (sceneMounted && activeSceneTarget?.id === SUN_INFO.id)}
           className="sr-only focus:not-sr-only focus:rounded-full focus:border focus:border-star-white/40 focus:bg-cosmos-deep/90 focus:px-3 focus:py-1.5 focus:font-sans focus:text-[10px] focus:uppercase focus:tracking-[0.16em] focus:text-star-white focus:backdrop-blur-md focus:outline-2 focus:outline-offset-2 focus:outline-nebula-purple"
         >
@@ -2125,7 +2821,7 @@ export default function SolarSystemCanvas() {
               key={planet.id}
               type="button"
               onClick={() => setSelectedItem(planetToSelection(planet))}
-              aria-label={`Open memory: ${planet.name}`}
+              aria-label={`${SITE_CONTENT.solarSystem.openPlanetAriaPrefix} ${planet.name}`}
               aria-pressed={active}
               className={`sr-only focus:not-sr-only focus:rounded-full focus:border focus:px-3 focus:py-1.5 focus:font-sans focus:text-[10px] focus:uppercase focus:tracking-[0.16em] focus:backdrop-blur-md focus:outline-2 focus:outline-offset-2 focus:outline-nebula-purple ${
                 active
@@ -2137,7 +2833,83 @@ export default function SolarSystemCanvas() {
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={() => {
+            const em = earthMoonRef.current;
+            setSelectedItem(null);
+            setMoonNote({
+              x: em.x > 0 ? em.x : typeof window !== "undefined" ? window.innerWidth * 0.5 : 400,
+              y: em.y > 0 ? em.y : typeof window !== "undefined" ? window.innerHeight * 0.4 : 300,
+            });
+            markMoonFound();
+            setMoonAnnouncement(`${SITE_CONTENT.moon.noteLine1} ${SITE_CONTENT.moon.noteLine2}`);
+          }}
+          aria-label={SITE_CONTENT.moon.moonAriaLabel}
+          className="sr-only focus:not-sr-only focus:rounded-full focus:border focus:border-sky-200/50 focus:bg-cosmos-deep/90 focus:px-3 focus:py-1.5 focus:font-sans focus:text-[10px] focus:uppercase focus:tracking-[0.16em] focus:text-sky-100 focus:backdrop-blur-md focus:outline-2 focus:outline-offset-2 focus:outline-sky-200"
+        >
+          {SITE_CONTENT.moon.name}
+        </button>
       </nav>
+
+      {/* Screen-reader live region for Moon note */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {moonAnnouncement}
+      </div>
+
+      {/* Desktop Hover Tooltip for Earth's Hidden Moon */}
+      {hoveredMoon && !moonNote && !isFocusActive && !isFinaleActive && (
+        <div
+          className="pointer-events-none hidden md:block fixed z-20 -translate-x-1/2 -translate-y-[140%] rounded-full border border-sky-200/35 bg-cosmos-deep/88 px-3.5 py-1.5 font-sans text-[10px] uppercase tracking-[0.2em] text-sky-100 backdrop-blur-md shadow-glow"
+          style={{
+            left: `${clamp(hoveredMoon.x, 90, typeof window !== "undefined" ? window.innerWidth - 90 : 800)}px`,
+            top: `${clamp(hoveredMoon.y, 70, typeof window !== "undefined" ? window.innerHeight - 60 : 600)}px`,
+          }}
+        >
+          {SITE_CONTENT.moon.name}
+        </div>
+      )}
+
+      {/* Floating Secret Moon Note Near Earth's Moon */}
+      {moonNote && !isFocusActive && !isFinaleActive && (
+        <div
+          role="dialog"
+          aria-label={SITE_CONTENT.moon.name}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-30 w-68 -translate-x-1/2 rounded-2xl border border-sky-200/35 bg-cosmos-deep/92 p-4 text-left text-star-white shadow-glow-strong backdrop-blur-xl"
+          style={{
+            left: `${clamp(moonNote.x, 150, typeof window !== "undefined" ? window.innerWidth - 150 : 800)}px`,
+            top: `${clamp(moonNote.y + 22, 80, typeof window !== "undefined" ? window.innerHeight - 210 : 500)}px`,
+          }}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="font-sans text-[10px] uppercase tracking-[0.22em] text-sky-200/85">
+              {SITE_CONTENT.moon.name}
+            </p>
+            <button
+              type="button"
+              onClick={() => setMoonNote(null)}
+              aria-label={SITE_CONTENT.moon.closeNoteAria}
+              className="rounded-full px-1.5 py-0.5 text-xs text-star-white/60 hover:text-star-white"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="mt-1.5 font-serif text-base font-light text-star-white">
+            {SITE_CONTENT.moon.noteLine1}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-sky-100/80">
+            {SITE_CONTENT.moon.noteLine2}
+          </p>
+          <button
+            type="button"
+            onClick={enterMoonScene}
+            className="mt-3.5 inline-flex min-h-[38px] items-center rounded-full border border-sky-200/45 bg-sky-200/15 px-4 py-1.5 font-sans text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-100 transition hover:border-sky-200 hover:bg-sky-200/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-200"
+          >
+            {SITE_CONTENT.moon.landButtonLabel}
+          </button>
+        </div>
+      )}
 
       {/* Desktop Floating Hover Tooltip */}
       {hoveredPlanet && !selectedItem && (
@@ -2165,7 +2937,7 @@ export default function SolarSystemCanvas() {
               {SITE_CONTENT.solarSystem.openMemoryCta} &rarr;
             </Link>
             <span className="font-sans text-[10px] text-star-white/45">
-              Click to zoom
+              {SITE_CONTENT.solarSystem.clickToZoomHint}
             </span>
           </div>
         </div>
@@ -2174,7 +2946,7 @@ export default function SolarSystemCanvas() {
       {/* Selected Planet / Sun Details: Swipeable Bottom Sheet on Mobile, Side Panel on Desktop */}
       {selectedItem && !isFocusActive && (
         <aside
-          aria-label={`${selectedItem.name} memory`}
+          aria-label={`${selectedItem.name} ${SITE_CONTENT.solarSystem.memoryAsideAriaSuffix}`}
           onTouchStart={handleSheetTouchStart}
           onTouchMove={handleSheetTouchMove}
           onTouchEnd={handleSheetTouchEnd}
@@ -2190,9 +2962,17 @@ export default function SolarSystemCanvas() {
             className="mx-auto mb-3 h-1 w-10 rounded-full bg-star-white/30 md:hidden"
           />
 
-          <p className="font-sans text-[11px] uppercase tracking-[0.22em] text-nebula-purple">
-            {selectedItem.subtitle}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-sans text-[11px] uppercase tracking-[0.22em] text-nebula-purple">
+              {selectedItem.subtitle}
+            </p>
+            {selectedIsVisited && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/35 bg-amber-300/12 px-2 py-0.5 font-sans text-[9px] uppercase tracking-[0.18em] text-amber-200">
+                <span aria-hidden="true" className="h-1 w-1 rounded-full bg-amber-300" />
+                {SITE_CONTENT.solarSystem.openedBadge}
+              </span>
+            )}
+          </div>
           <h2 className="mt-1.5 font-serif text-2xl sm:text-3xl font-light tracking-[0.08em] text-star-white text-shadow-glow-subtle">
             {selectedItem.name}
           </h2>
@@ -2203,7 +2983,9 @@ export default function SolarSystemCanvas() {
           <dl className="mt-4 grid grid-cols-2 gap-3 border-y border-star-white/10 py-3.5 text-xs">
             <div>
               <dt className="font-sans text-[10px] uppercase tracking-[0.18em] text-star-white/50">
-                {selectedItem.isSun ? SITE_CONTENT.solarSystem.sun.detailLabel1 : "Kept"}
+                {selectedItem.isSun
+                  ? SITE_CONTENT.solarSystem.sun.detailLabel1
+                  : SITE_CONTENT.solarSystem.keptLabel}
               </dt>
               <dd className="mt-1 text-star-white/90">
                 {selectedItem.paletteName}
@@ -2211,7 +2993,9 @@ export default function SolarSystemCanvas() {
             </div>
             <div>
               <dt className="font-sans text-[10px] uppercase tracking-[0.18em] text-star-white/50">
-                {selectedItem.isSun ? SITE_CONTENT.solarSystem.sun.detailLabel2 : "In My Heart"}
+                {selectedItem.isSun
+                  ? SITE_CONTENT.solarSystem.sun.detailLabel2
+                  : SITE_CONTENT.solarSystem.inMyHeartLabel}
               </dt>
               <dd className="mt-1 text-star-white/90">
                 {selectedItem.cycleLabel}
@@ -2226,7 +3010,9 @@ export default function SolarSystemCanvas() {
                 onClick={() => enterMemoryScene(selectedItem)}
                 className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-star-white/55 bg-nebula-purple/25 px-5 py-2.5 font-sans text-[11px] uppercase tracking-[0.18em] text-star-white shadow-glow transition-all hover:border-star-white hover:shadow-glow-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nebula-purple"
               >
-                {SITE_CONTENT.solarSystem.openMemoryCta}
+                {selectedIsVisited
+                  ? SITE_CONTENT.solarSystem.openAgainCta
+                  : SITE_CONTENT.solarSystem.openMemoryCta}
               </button>
             )}
             <button
@@ -2247,19 +3033,125 @@ export default function SolarSystemCanvas() {
         ariaLabel={
           activeSceneEntry
             ? `${activeSceneEntry.title} — ${activeSceneEntry.eyebrow}`
-            : "Memory scene"
+            : SITE_CONTENT.common.memorySceneAriaFallback
         }
         returnFocusTo={activeSceneTarget?.isSun ? sunTriggerRef : undefined}
       >
         {ActiveSceneComponent && (
           <ActiveSceneComponent
             onExit={exitMemoryScene}
+            onOpenMoon={enterMoonScene}
             onVisited={() => {
-              if (activeSceneTarget) markPlanetVisited(activeSceneTarget.id);
+              if (!activeSceneTarget) return;
+              if (activeSceneTarget.id === "moon") {
+                markMoonVisited();
+              } else {
+                markPlanetVisited(activeSceneTarget.id);
+              }
             }}
           />
         )}
       </FocusScene>
+
+      {/* Skip Button During 14s Grand Finale Sequence */}
+      {finalePhase === "sequence" && (
+        <div
+          className="fixed z-40"
+          style={{
+            bottom: "max(1.25rem, env(safe-area-inset-bottom))",
+            right: "max(1.25rem, env(safe-area-inset-right))",
+          }}
+        >
+          <button
+            type="button"
+            onClick={enterEnvelopeState}
+            className="inline-flex min-h-[44px] items-center rounded-full border border-amber-200/35 bg-cosmos-navy/75 px-4 py-2 font-sans text-[11px] uppercase tracking-[0.2em] text-amber-100/90 backdrop-blur-md transition hover:border-amber-200 hover:bg-amber-300/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
+          >
+            {SITE_CONTENT.solarSystem.skipFinaleLabel}
+          </button>
+        </div>
+      )}
+
+      {/* Persistent Bottom-Right Envelope Button After Finale Has Been Seen */}
+      {hydrated && finaleSeen && !isFocusActive && !isFinaleActive && (
+        <div
+          className="fixed z-20"
+          style={{
+            bottom: "max(1.1rem, env(safe-area-inset-bottom))",
+            right: "max(1.1rem, env(safe-area-inset-right))",
+          }}
+        >
+          <button
+            ref={envelopeBtnRef}
+            type="button"
+            onClick={() => {
+              setSelectedItem(null);
+              finaleRef.current.phase = "letter";
+              setFinalePhase("letter");
+            }}
+            aria-label={SITE_CONTENT.solarSystem.readOurLetterAria}
+            className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-amber-200/45 bg-cosmos-deep/85 text-amber-200 shadow-[0_0_24px_rgba(253,224,71,0.28)] backdrop-blur-md transition-all duration-300 hover:scale-105 hover:border-amber-200 hover:shadow-[0_0_32px_rgba(253,224,71,0.48)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-200"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+              <path d="M3.5 6.5 L12 13 L20.5 6.5" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Grand Finale Sealed Envelope & Full-Screen Final Letter */}
+      {(finalePhase === "envelope" || finalePhase === "letter") && (
+        <FinalLetterOverlay
+          phase={finalePhase}
+          onOpenLetter={() => {
+            finaleRef.current.phase = "letter";
+            setFinalePhase("letter");
+          }}
+          onClose={() => {
+            finaleRef.current.phase = "idle";
+            setFinalePhase("idle");
+          }}
+          onReplayFinale={() => {
+            startFinaleSequence();
+          }}
+          returnFocusTo={envelopeBtnRef}
+        />
+      )}
+
+      {/* Moon Cratered Silver-Blue Descent Overlay (3s continuous landing zoom) */}
+      <div
+        ref={moonDiveRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-70 transition-opacity duration-300 ease-out"
+        style={{
+          opacity: 0,
+          background:
+            "radial-gradient(circle at 38% 42%, rgba(148,163,184,0.45) 0%, transparent 22%), radial-gradient(circle at 64% 58%, rgba(100,116,139,0.4) 0%, transparent 18%), radial-gradient(circle at center, rgba(226,232,240,0.92) 0%, rgba(148,163,184,0.88) 42%, rgba(30,41,59,0.92) 82%, rgba(2,3,10,0.98) 100%)",
+        }}
+      />
+
+      {/* Earth Atmospheric Cloud-Dive Overlay (4s continuous spectate zoom for Our First Date) */}
+      <div
+        ref={earthDiveRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-70 transition-opacity duration-300 ease-out"
+        style={{
+          opacity: 0,
+          background:
+            "radial-gradient(circle at 30% 35%, rgba(255,255,255,0.85) 0%, rgba(224,242,254,0.5) 26%, transparent 56%), radial-gradient(circle at 72% 62%, rgba(255,255,255,0.82) 0%, rgba(186,230,253,0.45) 28%, transparent 58%), radial-gradient(circle at center, rgba(186,230,253,0.92) 0%, rgba(56,189,248,0.86) 46%, rgba(14,116,144,0.75) 85%, rgba(5,12,28,0.9) 100%)",
+        }}
+      />
 
       {/* Warm Golden Zoom-In / Zoom-Out Crossfade Glow */}
       <div

@@ -13,7 +13,8 @@ export const metadata: Metadata = {
 };
 
 export default function OurMemoriesPage() {
-  const { eyebrow, heading, intro, items } = SITE_CONTENT.ourMemories;
+  const { eyebrow, heading, intro, canvasLabelSuffix, items } =
+    SITE_CONTENT.ourMemories;
 
   return (
     <section className="relative flex-1 pt-36 pb-24 px-6 sm:px-10">
@@ -41,7 +42,7 @@ export default function OurMemoriesPage() {
                   flowerType={item.flowerType}
                   paletteKey={item.paletteKey}
                   seed={item.seed}
-                  label={`${item.title} — glowing floral memory`}
+                  label={`${item.title} — ${canvasLabelSuffix}`}
                   className="h-56 w-full transition-transform duration-700 ease-out group-hover:scale-105"
                 />
                 <span className="pointer-events-none absolute top-3.5 left-3.5 rounded-full border border-star-white/20 bg-cosmos-navy/70 px-3 py-1 font-sans text-[10px] uppercase tracking-[0.2em] text-star-white/85 backdrop-blur-md">

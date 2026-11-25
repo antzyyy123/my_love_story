@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Montserrat } from "next/font/google";
+import DevPlaceholderNotice from "@/components/DevPlaceholderNotice";
 import { SITE_CONTENT } from "@/lib/content";
+import { ProgressProvider } from "@/lib/progress";
 import "./globals.css";
 
 const cormorantGaramond = Cormorant_Garamond({
@@ -42,7 +44,10 @@ export default function RootLayout({
       className={`${cormorantGaramond.variable} ${montserrat.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-cosmos-navy text-star-white font-sans selection:bg-nebula-purple/40 selection:text-star-white">
-        {children}
+        <ProgressProvider>
+          {process.env.NODE_ENV === "development" && <DevPlaceholderNotice />}
+          {children}
+        </ProgressProvider>
       </body>
     </html>
   );

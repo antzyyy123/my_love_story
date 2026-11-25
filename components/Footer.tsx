@@ -19,7 +19,7 @@ export default function Footer() {
         {/* Center: Optional Social Icons (shown only when links are filled in lib/content.ts) */}
         {hasAnySocial && (
           <div
-            aria-label="Social links"
+            aria-label={SITE_CONTENT.common.socialLinksAria}
             className="flex items-center justify-center gap-5"
           >
             {SOCIAL_LINKS.instagram.trim() && (
@@ -27,7 +27,7 @@ export default function Footer() {
                 href={SOCIAL_LINKS.instagram}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label="Instagram"
+                aria-label={SITE_CONTENT.common.socialLabels.instagram}
                 className="text-star-white/75 transition-all duration-300 hover:text-star-white hover:drop-shadow-[0_0_10px_rgba(236,72,153,0.85)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-nebula-purple rounded-sm"
               >
                 <svg
@@ -52,7 +52,7 @@ export default function Footer() {
                 href={SOCIAL_LINKS.facebook}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label="Facebook"
+                aria-label={SITE_CONTENT.common.socialLabels.facebook}
                 className="text-star-white/75 transition-all duration-300 hover:text-star-white hover:drop-shadow-[0_0_10px_rgba(56,189,248,0.85)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-nebula-purple rounded-sm"
               >
                 <svg
@@ -71,7 +71,7 @@ export default function Footer() {
                 href={SOCIAL_LINKS.pinterest}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label="Pinterest"
+                aria-label={SITE_CONTENT.common.socialLabels.pinterest}
                 className="text-star-white/75 transition-all duration-300 hover:text-star-white hover:drop-shadow-[0_0_10px_rgba(139,92,246,0.9)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-nebula-purple rounded-sm"
               >
                 <svg

@@ -9,6 +9,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { SITE_CONTENT } from "@/lib/content";
 
 interface FocusSceneErrorBoundaryProps {
   onExit: () => void;
@@ -38,14 +39,14 @@ class FocusSceneErrorBoundary extends Component<
       return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[#04040e] p-6 text-center text-star-white">
           <p className="font-serif text-xl font-light text-star-white">
-            This memory needs a moment to bloom.
+            {SITE_CONTENT.common.memoryFallbackTitle}
           </p>
           <button
             type="button"
             onClick={this.props.onExit}
             className="inline-flex min-h-[44px] items-center rounded-full border border-star-white/30 bg-cosmos-navy/80 px-5 py-2 font-sans text-[11px] uppercase tracking-[0.2em] text-star-white hover:border-star-white"
           >
-            Back to our sky
+            {SITE_CONTENT.common.backToSky}
           </button>
         </div>
       );

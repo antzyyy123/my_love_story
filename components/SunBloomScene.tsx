@@ -271,12 +271,21 @@ export interface SunBloomSceneProps {
   onVisited?: () => void;
 }
 
-export default function SunBloomScene({ onExit }: SunBloomSceneProps) {
+export default function SunBloomScene({ onExit, onVisited }: SunBloomSceneProps) {
   const copy = SITE_CONTENT.sunFlower;
   const sunCopy = SITE_CONTENT.solarSystem.sun;
   const backLabel = SITE_CONTENT.solarSystem.backToSystemCta;
 
   const [phase, setPhase] = useState<FlowerPhase>("growing");
+  const visitedReportedRef = useRef(false);
+
+  // Mark Sun as visited when the Yes path finishes and reaches the living garden
+  useEffect(() => {
+    if (phase === "alive" && !visitedReportedRef.current) {
+      visitedReportedRef.current = true;
+      onVisited?.();
+    }
+  }, [phase, onVisited]);
   const [questionVisible, setQuestionVisible] = useState(false);
   const [titleVisible, setTitleVisible] = useState(true);
   const [hintSweepPartId, setHintSweepPartId] = useState<FlowerPartId | null>(null);
